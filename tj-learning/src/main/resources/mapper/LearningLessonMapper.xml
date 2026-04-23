@@ -2,4 +2,7 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.tianji.learning.mapper.LearningLessonMapper">
 
+    <select id="selectTotalWeekFreqByUserId" resultType="java.lang.Integer" parameterType="java.lang.Long">
+        select sum(week_freq) from learning_lesson where user_id = #{userId}
+    </select>
 </mapper>

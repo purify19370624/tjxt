@@ -4,7 +4,10 @@ package com.tianji.learning.controller;
 import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.common.domain.query.PageQuery;
 import com.tianji.common.utils.UserContext;
+import com.tianji.learning.domain.dto.LearningPlanDTO;
 import com.tianji.learning.domain.vo.LearningLessonVO;
+import com.tianji.learning.domain.vo.LearningPlanPageVO;
+import com.tianji.learning.domain.vo.LearningPlanVO;
 import com.tianji.learning.service.ILearningLessonService;
 import com.tianji.learning.service.impl.LearningLessonServiceImpl;
 import io.swagger.annotations.Api;
@@ -12,6 +15,8 @@ import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
 
 /**
  * <p>
@@ -54,5 +59,15 @@ public class LearningLessonController {
     @GetMapping("/lessons/{courseId}/count")
     Integer countLearningLessonByCourse(@ApiParam(value = "课程id",example = "1") @PathVariable("courseId") Long courseId){
         return lessonService.countLearningLessonByCourse(courseId);
+    }
+    @ApiOperation("创建学习计划")
+    @PostMapping("/plans")
+    public void createLearningPlans(@Valid @RequestBody LearningPlanDTO planDTO){
+        lessonService.createLearningPlans(planDTO.getCourseId(),planDTO.getFreq());
+    }
+    @ApiOperation("查询我的学习计划")
+    @GetMapping("/plans")
+    public LearningPlanPageVO queryMyPlans(PageQuery query){
+        return lessonService.queryMyplans(query);
     }
 }
