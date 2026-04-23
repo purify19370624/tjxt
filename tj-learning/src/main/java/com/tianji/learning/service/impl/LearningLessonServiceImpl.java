@@ -143,6 +143,7 @@ public class LearningLessonServiceImpl extends ServiceImpl<LearningLessonMapper,
         Integer courseAmount = lambdaQuery()
                 .eq(LearningLesson::getUserId, userId)
                 .count();
+
         vo.setCourseAmount(courseAmount);
         // 6.查询小节信息
         List<CataSimpleInfoDTO> cataInfos =

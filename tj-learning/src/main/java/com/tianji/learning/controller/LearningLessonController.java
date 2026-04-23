@@ -49,6 +49,7 @@ public class LearningLessonController {
     public Long isLessonValid(@PathVariable("courseId") Long courseId) {
         return learningLessonService.isLessonValid(courseId);
     }
+
     @ApiOperation("用户手动删除当前课程")
     @DeleteMapping("/{courseId}")
     public void deleteCourseFromLesson(@PathVariable("courseId") Long courseId){
@@ -56,7 +57,7 @@ public class LearningLessonController {
         lessonService.deleteCourseFromLesson(userId,courseId);
     }
     @ApiOperation("查询该课程的报名人数")
-    @GetMapping("/lessons/{courseId}/count")
+    @GetMapping("/{courseId}/count")
     Integer countLearningLessonByCourse(@ApiParam(value = "课程id",example = "1") @PathVariable("courseId") Long courseId){
         return lessonService.countLearningLessonByCourse(courseId);
     }
