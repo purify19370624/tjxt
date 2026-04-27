@@ -17,6 +17,7 @@ import com.tianji.learning.mapper.LearningRecordMapper;
 import com.tianji.learning.service.ILearningLessonService;
 import com.tianji.learning.service.ILearningRecordService;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
+import com.tianji.learning.utils.LearningRecordDelayTaskHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,7 @@ import java.util.List;
 public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper, LearningRecord> implements ILearningRecordService {
     private final ILearningLessonService lessonService;
     private final CourseClient courseClient;
+    private final LearningRecordDelayTaskHandler taskHandler;
 
     @Override
     public LearningLessonDTO queryLearningRecordByCourse(Long courseId) {
@@ -70,6 +72,9 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
             finished = handleVideoLearningRecord(userId, recordDTO);
         }else{
             finished = handleExamRecord(userId, recordDTO);
+        }
+        if(!finished){
+            return;
         }
         handleLearningLessonsChange(recordDTO,finished);
 
@@ -122,6 +127,17 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
             }
         }
         boolean finished = !oldlearningrecord.getFinished()&&recordDTO.getMoment()*2>=recordDTO.getDuration();
+        if(!finished){
+            LearningRecord record = new LearningRecord();
+            record.setLessonId(recordDTO.getLessonId());
+            record.setSectionId(recordDTO.getSectionId());
+            record.setMoment(recordDTO.getMoment());
+            record.setId(oldlearningrecord.getId());
+            record.setFinishTime(oldlearningrecord.getFinishTime());
+            taskHandler.addLearningRecordTask(record);
+            return false;
+
+        }
         boolean success = lambdaUpdate()
                 .set(LearningRecord::getMoment,recordDTO.getMoment())
                 .set(finished,LearningRecord::getFinished,true)
@@ -131,14 +147,21 @@ public class LearningRecordServiceImpl extends ServiceImpl<LearningRecordMapper,
         if(!success){
             throw new DbException("更新学习记录失败");
         }
+        taskHandler.cleanRecordCache(recordDTO.getLessonId(),recordDTO.getSectionId());
         return finished;
     }
 
     private LearningRecord queryOldRecord(Long lessonId, Long sectionId) {
-        return lambdaQuery()
+        LearningRecord record = taskHandler.readRecordCache(lessonId,sectionId);
+        if(record!=null){
+            return record;
+        }
+        record = lambdaQuery()
                 .eq(LearningRecord::getLessonId,lessonId)
                 .eq(LearningRecord::getSectionId,sectionId)
                 .one();
+        taskHandler.writeRecordCache(record);
+        return record;
     }
 
 
