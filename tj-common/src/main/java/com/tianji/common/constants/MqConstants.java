@@ -9,7 +9,8 @@ public interface MqConstants {
         String ORDER_EXCHANGE = "order.topic";
 
         /*学习有关的交换机*/
-        String LEARNING_EXCHANGE = "learning.topic";
+        String LEARNING_EXCHANGE = "learning.record.topic";
+        String LEARNING_DELAY_EXCHANGE = "learning.record.delay.topic";
 
         /*信息中心短信相关的交换机*/
         String SMS_EXCHANGE = "sms.direct";
@@ -22,7 +23,11 @@ public interface MqConstants {
         /*交易服务延迟任务交换机*/
         String TRADE_DELAY_EXCHANGE = "trade.delay.topic";
 
-         /*点赞记录有关的交换机*/
+        /*促销中心延迟任务交换机*/
+        String PROMOTION_DELAY_EXCHANGE = "promotion.delay.topic";
+        String PROMOTION_EXCHANGE = "promotion.direct";
+
+        /*点赞记录有关的交换机*/
         String LIKE_RECORD_EXCHANGE = "like.record.topic";
     }
     interface Queue {
@@ -40,6 +45,10 @@ public interface MqConstants {
         String ORDER_PAY_KEY = "order.pay";
         String ORDER_REFUND_KEY = "order.refund";
 
+        /*学习有关的RoutingKey*/
+        String LEARNING_RECORD_UPDATE_KEY = "learning.record.update";
+        String SAVE_LEARNING_RECORD_KEY = "learning.save.record.save";
+
         /*积分相关RoutingKey*/
         /* 写回答 */
         String WRITE_REPLY = "reply.new";
@@ -47,10 +56,19 @@ public interface MqConstants {
         String SIGN_IN = "sign.in";
         /* 学习视频 */
         String LEARN_SECTION = "section.learned";
+        /* 课程评价 */
+        String COMMENT_EVALUTE = "comment.evaluate";
         /* 写笔记 */
         String WRITE_NOTE = "note.new";
         /* 笔记被采集 */
         String NOTE_GATHERED = "note.gathered";
+
+        /*促销中心RoutingKey*/
+        String COUPON_ISSUE_KEY = "coupon.issue";
+        String COUPON_REVOKE_KEY = "coupon.revoke";
+        String USER_COUPON_EXPIRE_MESSAGE_KEY = "user.coupon.expire.message";
+        String RECEIVE_COUPON_KEY = "receive.coupon";
+        String EXCHANGE_COUPON_KEY = "exchange.coupon";
 
         /*点赞的RoutingKey*/
         String LIKED_TIMES_KEY_TEMPLATE = "{}.times.changed";
