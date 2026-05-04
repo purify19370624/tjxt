@@ -2,6 +2,7 @@ package com.tianji.learning.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 
+import com.tianji.api.client.remark.RemarkClient;
 import com.tianji.api.client.user.UserClient;
 import com.tianji.api.dto.user.UserDTO;
 import com.tianji.common.autoconfigure.mq.RabbitMqHelper;
@@ -46,7 +47,7 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
 
     private final IInteractionQuestionService questionService;
     private final UserClient userClient;
-
+    private final RemarkClient remarkClient;
     private final RabbitMqHelper rabbitMqHelper;
 
     @Override
@@ -104,7 +105,8 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
         //根据用户id列表查询用户信息，并转为map
         List<UserDTO> users = userClient.queryUserByIds(userIds);
         Map<Long, UserDTO> userMap = users.stream().collect(Collectors.toMap(UserDTO::getId, u -> u));
-
+        //获取用户点赞过的业务id列表
+        Set<Long> likedIds = remarkClient.isBizLiked(idMapTargetIds.keySet());
         //封装VO结果集
         List<ReplyVO> results = BeanUtils.copyList(records, ReplyVO.class);
         for (ReplyVO vo : results) {
@@ -123,7 +125,10 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
                 }
             }
 
+            //是否已点赞
+            vo.setLiked(likedIds.contains(vo.getId()));
         }
+
         //返回
         return PageDTO.of(page, results);
     }
@@ -188,6 +193,8 @@ public class InteractionReplyServiceImpl extends ServiceImpl<InteractionReplyMap
         }
 
 
+        //5、是否点赞过
+        vo.setLiked(remarkClient.isLiked(id));
 
 
         //6、返回vo
