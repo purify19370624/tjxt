@@ -6,4 +6,6 @@ public interface RedisConstants {
     /*业务点赞数统计的KEY前缀，后缀是业务类型*/
     String LIKES_TIMES_KEY_PREFIX = "likes:times:type:";
 
+    String SIGN_RECORD_KEY_PREFIX = "sign:uid:";
+
 }
