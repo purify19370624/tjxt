@@ -24,8 +24,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.tianji.promotion.constants.PromotionRedisConstants.COUPON_CODE_SERIAL_KEY;
-import static com.tianji.promotion.constants.PromotionRedisConstants.COUPON_RANGE_KEY;
+import static com.tianji.promotion.constants.PromotionRedisConstants.*;
 
 /**
  * <p>
@@ -89,6 +88,10 @@ public class ExchangeCodeServiceImpl extends ServiceImpl<ExchangeCodeMapper, Exc
         List<ExchangeCodeVO> list = BeanUtils.copyToList(records, ExchangeCodeVO.class);
         return PageDTO.of(page, list);
     }
-
+    @Override
+    public boolean updateExchangeMark(long serialNum, boolean mark) {
+        Boolean boo = redisTemplate.opsForValue().setBit(COUPON_CODE_MAP_KEY, serialNum, mark);
+        return boo != null && boo;
+    }
 
 }
