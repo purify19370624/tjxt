@@ -27,5 +27,5 @@ public interface OrderDetailMapper extends BaseMapper<OrderDetail> {
     List<IdAndNumDTO> countEnrollCourseOfStudent(@Param("ew") QueryWrapper<OrderDetail> wrapper);
 
     @Select("SELECT SUM(real_pay_amount) FROM order_detail WHERE course_id = #{courseId}")
-    int countRealPayAmountByCourseId(Long courseId);
+    Integer countRealPayAmountByCourseId(Long courseId);
 }
