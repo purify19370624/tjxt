@@ -1,8 +1,8 @@
 package com.tianji.search.controller;
 
-import com.tianji.common.domain.dto.PageDTO;
 import com.tianji.search.domain.query.CoursePageQuery;
 import com.tianji.search.domain.vo.CourseVO;
+import com.tianji.search.domain.vo.SearchPageVO;
 import com.tianji.search.service.ICourseService;
 import com.tianji.search.service.ISearchService;
 import io.swagger.annotations.Api;
@@ -23,9 +23,9 @@ public class CourseController {
     private final ISearchService searchService;
     private final ICourseService courseService;
 
-    @ApiOperation("用户端课程搜索接口")
+    @ApiOperation("用户端课程搜索接口（支持 cursor 游标深分页）")
     @GetMapping("/portal")
-    public PageDTO<CourseVO> queryCoursesForPortal(CoursePageQuery query){
+    public SearchPageVO queryCoursesForPortal(CoursePageQuery query){
         return searchService.queryCoursesForPortal(query);
     }
 

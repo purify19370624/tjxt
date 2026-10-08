@@ -420,7 +420,22 @@ public void doSomething(Long id) { ... }
 
 ### 分页
 
-沿用 MyBatis-Plus 分页插件（`PaginationInnerInterceptor`，MySQL，`maxLimit=200`）；查询参数继承 `PageQuery`，响应使用 `PageDTO`。
+**MySQL 系（MyBatis-Plus）**：`PaginationInnerInterceptor`（MySQL，`maxLimit=200`，即单页最多 200 条）；查询参数继承 `PageQuery`，响应使用 `PageDTO`。本质仍是 `LIMIT offset, size` 的偏移分页，offset 越大越慢，因此管理端列表应避免直接翻到很深的页码。
+
+**Elasticsearch 系（课程搜索）**：`GET /ss/courses/portal` 同时支持两种翻页方式。
+
+| 方式 | 传参 | 适用场景 | 代价 |
+| --- | --- | --- | --- |
+| 偏移分页 | `pageNo` + `pageSize` | 浅翻页、需要按页码跳转 | 随页深线性增长；`from + size` 超过 10000 会被拒绝 |
+| 游标分页 | `cursor`（取上一页返回的 `nextCursor`） | 深翻页、"加载更多" | 与页深无关，可无限翻页 |
+
+约定：
+
+- 单页最多 **100** 条，超出会被静默截断（避免一个请求拉走整个索引）。
+- `from + size > 10000`（ES 的 `index.max_result_window` 默认值）时返回**业务 400**「搜索结果过深…」，而不是把 ES 异常包装成 500。
+- 响应体在 `total / pages / list` 之外多返回一个 `nextCursor`；为空表示已是最后一页。把它作为下一页的 `cursor` 参数回传即可继续翻页。
+- 排序**始终以课程 `id` 作为决胜字段**，保证同分或排序值相同的文档在翻页时顺序稳定，不会重复出现或漏掉课程——这同时也是 `search_after` 能正确定位的前提。
+- 游标模式下 `pageNo` 不再生效（`search_after` 与 `from` 互斥），因此该模式只支持"下一页"，不支持跳页与回退。游标是不透明的 Base64URL 字符串，客户端不应解析其内容。
 
 ---
 

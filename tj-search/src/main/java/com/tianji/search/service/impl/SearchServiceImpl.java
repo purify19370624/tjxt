@@ -5,6 +5,8 @@ import com.tianji.api.client.user.UserClient;
 import com.tianji.api.dto.user.UserDTO;
 import com.tianji.common.constants.ErrorInfo;
 import com.tianji.common.domain.dto.PageDTO;
+import com.tianji.common.domain.query.PageQuery;
+import com.tianji.common.exceptions.BadRequestException;
 import com.tianji.common.exceptions.CommonException;
 import com.tianji.common.utils.*;
 import com.tianji.search.config.InterestsProperties;
@@ -12,9 +14,11 @@ import com.tianji.search.constants.SearchErrorInfo;
 import com.tianji.search.domain.po.Course;
 import com.tianji.search.domain.query.CoursePageQuery;
 import com.tianji.search.domain.vo.CourseVO;
+import com.tianji.search.domain.vo.SearchPageVO;
 import com.tianji.search.repository.CourseRepository;
 import com.tianji.search.service.IInterestsService;
 import com.tianji.search.service.ISearchService;
+import com.tianji.search.support.SearchCursor;
 import org.apache.commons.lang3.StringUtils;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
@@ -25,8 +29,10 @@ import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.index.query.RangeQueryBuilder;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
+import org.elasticsearch.search.sort.SortBuilders;
 import org.elasticsearch.search.sort.SortOrder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -40,6 +46,24 @@ import static com.tianji.search.repository.CourseRepository.PUBLISH_TIME;
 
 @Service
 public class SearchServiceImpl implements ISearchService {
+
+    /**
+     * ES 的结果窗口上限，对应索引设置 index.max_result_window 的默认值 10000。
+     * from + size 超过它 ES 会直接抛 "Result window is too large" 异常。
+     */
+    private static final int MAX_RESULT_WINDOW = 10_000;
+
+    /**
+     * 单页最大条数。ES 要为每条命中取回 _source 并做高亮，页越大内存与网络开销越高，
+     * 同时也会让 from/size 更快触达结果窗口上限，因此这里做一次截断保护。
+     */
+    private static final int MAX_PAGE_SIZE = 100;
+
+    /**
+     * 决胜排序字段。课程 id 唯一，把它追加到排序末尾可以保证排序是「全序」：
+     * 既避免同分/同值文档在翻页时出现重复或遗漏，也是 search_after 正确工作的前提。
+     */
+    private static final String SORT_TIE_BREAKER = "id";
 
     @Autowired
     private RestHighLevelClient restClient;
@@ -164,30 +188,34 @@ public class SearchServiceImpl implements ISearchService {
     }
 
     @Override
-    public PageDTO<CourseVO> queryCoursesForPortal(CoursePageQuery query) {
-        // 1.搜索数据
+    public SearchPageVO queryCoursesForPortal(CoursePageQuery query) {
+        // 1.规整分页参数：非法值回落默认、超大页大小截断，保证后续 total/pages 与实际查询一致
+        normalizePaging(query);
+        // 2.搜索数据
         SearchResponse response = searchForResponse(query, CourseVO.EXCLUDE_FIELDS);
-        // 2.解析响应
+        // 3.解析响应
         PageDTO<Course> result = handleSearchResponse(response, query.getPageSize());
-        // 3.处理VO
+        // 4.计算下一页游标：本页取满才说明后面可能还有数据
+        String nextCursor = buildNextCursor(response, query.getPageSize());
+        // 5.处理VO
         List<Course> list = result.getList();
         if (CollUtils.isEmpty(list)) {
-            return PageDTO.empty(result.getTotal(), result.getPages());
+            return SearchPageVO.empty(result.getTotal(), result.getPages());
         }
-        // 3.1.查询教师信息
+        // 5.1.查询教师信息
         List<Long> teacherIds = list.stream().map(Course::getTeacher).collect(Collectors.toList());
         List<UserDTO> teachers = userClient.queryUserByIds(teacherIds);
         AssertUtils.isNotEmpty(teachers, SearchErrorInfo.TEACHER_NOT_EXISTS);
         Map<Long, String> teacherMap = teachers.stream()
                 .collect(Collectors.toMap(UserDTO::getId, UserDTO::getName));
-        // 3.2.转换VO
+        // 5.2.转换VO
         List<CourseVO> vos = new ArrayList<>(list.size());
         for (Course c : list) {
             CourseVO vo = BeanUtils.toBean(c, CourseVO.class);
             vo.setTeacher(teacherMap.getOrDefault(c.getTeacher(), "未知"));
             vos.add(vo);
         }
-        return new PageDTO<>(result.getTotal(), result.getPages(), vos);
+        return new SearchPageVO(result.getTotal(), result.getPages(), vos, nextCursor);
     }
 
     @Override
@@ -226,25 +254,96 @@ public class SearchServiceImpl implements ISearchService {
         // 2.构建DSL
         // 2.1.构建query
         buildBasicQuery(request, query);
-        // 2.2.排序
-        String sortBy = query.getSortBy();
-        if (StringUtils.isNotBlank(sortBy)) {
-            request.source().sort(sortBy, query.getIsAsc() ? SortOrder.ASC : SortOrder.DESC);
-        }
-        // 2.3.分页
-        request.source().from(query.from()).size(query.getPageSize());
-        // 2.4.高亮
+        // 2.2.排序：客户端指定 > 相关性，末尾统一追加唯一决胜字段
+        buildSort(request.source(), query);
+        // 2.3.分页：优先游标（search_after），否则 from/size 并做结果窗口保护
+        buildPaging(request.source(), query);
+        // 2.4.精确统计总数：ES 默认只精确到 10000 条，会让 total/pages 在超大结果集上失真
+        request.source().trackTotalHits(true);
+        // 2.5.高亮
         request.source().highlighter(new HighlightBuilder().field(CourseRepository.DEFAULT_QUERY_NAME));
-        // 2.5.source处理
+        // 2.6.source处理
         request.source().fetchSource(null, excludeFields);
         // 3.发送请求
-        SearchResponse response = null;
         try {
-            response = restClient.search(request, RequestOptions.DEFAULT);
+            return restClient.search(request, RequestOptions.DEFAULT);
         } catch (IOException e) {
             throw new CommonException(ErrorInfo.Msg.SERVER_INTER_ERROR, e);
         }
-        return response;
+    }
+
+    /**
+     * 规整分页参数：页码、页大小非法时回落默认值，超过上限则截断。
+     *
+     * <p>目的是把「单个请求最多取回多少文档」变成常量，避免一个请求就把 ES 和网关的内存打满。
+     * 截断而不是直接报错，是为了兼容那些习惯性传大 pageSize 的调用方。
+     */
+    void normalizePaging(CoursePageQuery query) {
+        Integer pageNo = query.getPageNo();
+        if (pageNo == null || pageNo < 1) {
+            query.setPageNo(PageQuery.DEFAULT_PAGE_NUM);
+        }
+        Integer pageSize = query.getPageSize();
+        if (pageSize == null || pageSize < 1) {
+            query.setPageSize(PageQuery.DEFAULT_PAGE_SIZE);
+        } else if (pageSize > MAX_PAGE_SIZE) {
+            query.setPageSize(MAX_PAGE_SIZE);
+        }
+    }
+
+    /**
+     * 构建排序条件。无论客户端是否指定排序，末尾都追加唯一字段作为决胜条件。
+     *
+     * <p>没有决胜字段时，ES 对「同分或排序字段取值相同」的文档的返回顺序是<b>不保证稳定</b>的，
+     * 于是翻页时会出现同一条课程重复出现、另一条课程永远看不到的情况；
+     * 而 {@code search_after} 本身也要求排序是全序，否则游标无法唯一定位。
+     */
+    void buildSort(SearchSourceBuilder source, CoursePageQuery query) {
+        String sortBy = query.getSortBy();
+        if (StringUtils.isNotBlank(sortBy)) {
+            SortOrder order = Boolean.TRUE.equals(query.getIsAsc()) ? SortOrder.ASC : SortOrder.DESC;
+            source.sort(SortBuilders.fieldSort(sortBy).order(order));
+        } else {
+            // 未指定排序时优先按相关性；match_all 场景下 _score 恒为 1.0，此时实际由决胜字段决定顺序
+            source.sort(SortBuilders.scoreSort().order(SortOrder.DESC));
+        }
+        source.sort(SortBuilders.fieldSort(SORT_TIE_BREAKER).order(SortOrder.ASC));
+    }
+
+    /**
+     * 构建分页条件。
+     *
+     * <p>带游标时使用 {@code search_after}：由上一页最后一条的排序值直接定位，
+     * 代价与页深无关，因此可以无限翻页；
+     * 不带游标时退化为 {@code from/size}，并在触及 ES 结果窗口上限之前抛出明确的业务异常（400），
+     * 而不是把 ES 的 "Result window is too large" 包装成 500 抛给前端。
+     */
+    void buildPaging(SearchSourceBuilder source, CoursePageQuery query) {
+        source.size(query.getPageSize());
+        String cursor = query.getCursor();
+        if (StringUtils.isNotBlank(cursor)) {
+            // search_after 与 from 互斥：ES 要求此时 from 为 0，故这里不再设置 from
+            source.searchAfter(SearchCursor.decode(cursor));
+            return;
+        }
+        int from = query.from();
+        if (from + query.getPageSize() > MAX_RESULT_WINDOW) {
+            throw new BadRequestException(SearchErrorInfo.SEARCH_WINDOW_EXCEEDED);
+        }
+        source.from(from);
+    }
+
+    /**
+     * 生成下一页游标：取本页最后一条命中的排序值。
+     * 该数组与 {@link #buildSort} 声明的排序字段一一对应，原样回传给 search_after 即可定位下一页。
+     * 本页没取满，说明后面已经没有数据，返回 null 表示到达最后一页。
+     */
+    String buildNextCursor(SearchResponse response, int pageSize) {
+        SearchHit[] hits = response.getHits().getHits();
+        if (hits == null || hits.length < pageSize) {
+            return null;
+        }
+        return SearchCursor.encode(hits[hits.length - 1].getSortValues());
     }
 
     private void buildBasicQuery(SearchRequest request, CoursePageQuery query) {

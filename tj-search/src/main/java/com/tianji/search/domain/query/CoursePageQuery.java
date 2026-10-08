@@ -35,4 +35,12 @@ public class CoursePageQuery extends PageQuery {
     @DateTimeFormat(pattern = DateUtils.DEFAULT_DATE_TIME_FORMAT)
     @ApiModelProperty(value = "更新时间区间的结束时间", example = "2022-7-18 19:52:36")
     private LocalDateTime endTime;
+
+    /**
+     * 深分页游标：把上一页返回的 nextCursor 原样传回来即可继续向下翻页。
+     * 传入后走 ES 的 search_after，翻页代价与页深无关；此时 pageNo 不再生效。
+     */
+    @ApiModelProperty(value = "分页游标，传入上一页返回的 nextCursor 继续翻页；不传则按 pageNo/pageSize 分页",
+            example = "WzEuMCwxMjA0MTAxXQ")
+    private String cursor;
 }
